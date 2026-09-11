@@ -209,6 +209,20 @@ Among the five independently trained models, **Model 3 achieved the best perform
 
 The relatively small variability in balanced accuracy across the five folds suggests that the ability of the network to recognize the different diagnostic classes remained reasonably stable across different training-validation partitions.
 
+### Normalized Confusion Matrices
+
+To better visualize class-specific performance, row-normalized confusion matrices were generated for all five models evaluated on the independent test set.
+
+Each row represents the true diagnostic class, while each column represents the predicted class. Therefore, diagonal values correspond to class-specific recall.
+
+<p align="center">
+  <img src="figures/confusion_matrices_5_models.png" width="1600">
+</p>
+
+The confusion matrices confirm that model performance varies across diagnostic categories.
+
+In particular, melanocytic nevi (`nv`) and vascular lesions (`vasc`) tend to achieve higher recall values, whereas some minority or visually challenging classes show greater confusion.
+
 ---
 
 ## ROC Analysis
@@ -258,6 +272,7 @@ HAM10000-CNN-Classification/
 │
 ├── figures/
 │   └── cnn_architecture.jpg
+|   └──confusion_matrices_5_models.png
 │
 ├── models/
 │   └── README.md
