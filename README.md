@@ -1,45 +1,50 @@
-# Skin Lesion Classification with a Convolutional Neural Network
+# Skin Lesion Classification Using a Convolutional Neural Network
 
-Deep learning project for multiclass classification of dermoscopic skin lesions using the **HAM10000** dataset.
+Deep learning project for automatic multiclass classification of dermoscopic skin lesions using the **HAM10000** dataset.
 
-The project was developed as part of the **AI for Medicine** course at the University of Bologna.
+Developed for the **AI for Medicine** course at the **University of Bologna**.
 
 <p align="center">
-  <img src="figures/cnn_architecture.jpg" width="900">
+  <img src="figures/cnn_architecture.jpg" width="100%">
 </p>
 
-## Overview
+---
 
-This project investigates the automatic classification of dermoscopic images using a convolutional neural network trained from scratch.
+## Project Overview
 
-The model receives an RGB dermoscopic image with dimensions `3 × 75 × 100` and produces seven output logits corresponding to the diagnostic categories contained in the HAM10000 dataset.
+Skin lesions include both benign conditions and malignant neoplasms, for which delayed diagnosis may negatively affect patient outcomes.
 
-Particular attention was given to:
+This project investigates whether a convolutional neural network trained directly on dermoscopic images can learn visual representations useful for distinguishing the seven diagnostic categories included in HAM10000.
 
-- prevention of lesion-level data leakage;
-- severe class imbalance;
-- group-based cross-validation;
-- class-weighted training;
-- balanced performance metrics;
-- clinically relevant binary ROC analyses.
+Given an RGB dermoscopic image of size `3 × 75 × 100`, the model produces seven diagnostic logits:
+
+**3 × 75 × 100 → CNN → 7 logits → Predicted diagnostic class**
+
+In addition to the seven-class classification task, two clinically relevant binary discrimination problems were investigated:
+
+- melanocytic nevi (`nv`) vs all other lesions;
+- malignant vs non-malignant lesions.
 
 ---
 
 ## Dataset
 
-The project uses the **HAM10000** dataset.
+The project uses the **HAM10000** dermoscopic image dataset.
 
 The processed dataset contains:
 
-- **10,015 dermoscopic images**
-- **7,470 unique skin lesions**
+- **10,015 images**
+- **7,470 unique lesions**
 - **7 diagnostic classes**
+- image dimensions of **100 × 75 × 3**
 
-The diagnostic categories are:
+Multiple images may correspond to the same lesion, meaning that the total number of images is larger than the number of independent lesions.
+
+### Diagnostic Classes
 
 | Code | Diagnosis |
 |---|---|
-| `akiec` | Actinic keratoses and intraepithelial carcinoma |
+| `akiec` | Actinic keratoses and intraepithelial carcinoma / Bowen's disease |
 | `bcc` | Basal cell carcinoma |
 | `bkl` | Benign keratosis-like lesions |
 | `df` | Dermatofibroma |
@@ -47,25 +52,31 @@ The diagnostic categories are:
 | `nv` | Melanocytic nevi |
 | `vasc` | Vascular lesions |
 
-Multiple images may correspond to the same lesion.
+The numerical label mapping used during training is:
 
-For this reason, dataset partitioning was performed at the **lesion level**, rather than at the individual image level.
+**akiec → 0 → bcc → 1 → bkl → 2 → df → 3 → mel → 4 → nv → 5 → vasc → 6**
 
-The dataset itself is not included in this repository.
+HAM10000 is strongly imbalanced. Melanocytic nevi represent the majority of observations, whereas dermatofibroma and vascular lesions are among the rarest classes.
 
-Further information is available in `data/README.md`.
+This imbalance motivated both **class-weighted training** and the use of **class-balanced evaluation metrics** rather than relying on conventional accuracy alone.
 
 ---
 
-## Data Splitting Strategy
+## Preventing Data Leakage
 
-To prevent data leakage, all images corresponding to the same `lesion_id` were assigned to the same dataset partition.
+A central methodological issue in HAM10000 is that multiple images may originate from the same lesion.
 
-The unique lesions were randomly divided as follows:
+Randomly splitting individual images could therefore place different images of the same lesion in both training and evaluation sets, introducing information leakage and producing an overly optimistic estimate of performance.
 
-**85% Cross-validation dataset → 15% Independent test dataset**
+For this reason, all dataset partitions were created at the level of `lesion_id`.
 
-Five-fold cross-validation was then performed using:
+The unique lesions were randomly shuffled using a seed of `42` and divided as follows:
+
+**85% of lesions → cross-validation dataset → 8,529 images**
+
+**15% of lesions → independent test set → 1,486 images**
+
+Within the development dataset, five-fold cross-validation was performed using:
 
 ```python
 GroupKFold(n_splits=5)
@@ -73,125 +84,188 @@ GroupKFold(n_splits=5)
 
 with `lesion_id` as the grouping variable.
 
-The independent test set was kept completely separate from training, validation and model selection.
+This guarantees that all images belonging to the same lesion remain entirely within either the training or validation partition of a given fold.
+
+The independent test set was kept completely separate from:
+
+- model fitting;
+- epoch selection;
+- model selection;
+- architecture development;
+- hyperparameter decisions.
+
+This allows the final evaluation to better reflect generalization to previously unseen lesions.
 
 ---
 
-## Model Architecture
+## Data Preprocessing and Augmentation
 
-The proposed convolutional neural network contains four convolutional blocks.
+Images were converted from:
 
-Each block follows the general structure:
+**Height × Width × Channels → Channels × Height × Width**
 
-**Convolution → Batch Normalization → ReLU → Convolution → Batch Normalization → ReLU → Max Pooling**
+and pixel values were scaled from:
 
-The number of feature channels progressively increases:
+**[0, 255] → [0, 1]**
 
-**3 → 48 → 96 → 192 → 384**
+The standard training augmentation pipeline includes:
 
-while the spatial resolution progressively decreases:
+- random horizontal flipping with probability `0.5`;
+- random vertical flipping with probability `0.5`;
+- random rotation between `-20°` and `+20°`.
 
-**75 × 100 → 37 × 50 → 18 × 25 → 9 × 12 → 4 × 6**
-
-After the convolutional blocks, Global Average Pooling reduces the final feature maps to a 384-dimensional representation.
-
-The complete dimensional transformation is:
-
-**3 × 75 × 100 → 48 × 37 × 50 → 96 × 18 × 25 → 192 × 9 × 12 → 384 × 4 × 6 → 384 → 7 logits**
-
-The architecture is implemented in `src/model.py`.
-
----
-
-## Data Augmentation
-
-Training images are augmented using:
-
-- random horizontal flipping;
-- random vertical flipping;
-- random rotations up to ±20°.
-
-A stronger augmentation pipeline is applied to selected minority classes and additionally includes small variations in:
+A stronger augmentation pipeline was additionally used for selected minority classes and introduced approximately 10% random variation in:
 
 - brightness;
 - contrast;
 - saturation.
 
-The augmentation and dataset logic are implemented in `src/dataset.py`.
+The dataset and augmentation logic are implemented in:
+
+`src/dataset.py`
+
+---
+
+## CNN Architecture
+
+The final model contains approximately **2.64 million trainable parameters**.
+
+It is composed of four convolutional blocks followed by Global Average Pooling and a fully connected classification layer.
+
+Each convolutional block follows the structure:
+
+**Convolution → Batch Normalization → ReLU → Convolution → Batch Normalization → ReLU → Max Pooling**
+
+All convolutions use:
+
+- kernel size: `3 × 3`
+- padding: `1`
+- stride: `1`
+
+Each block ends with `2 × 2` max pooling.
+
+The number of feature channels progressively increases:
+
+**3 → 48 → 96 → 192 → 384**
+
+while spatial resolution progressively decreases:
+
+**75 × 100 → 37 × 50 → 18 × 25 → 9 × 12 → 4 × 6**
+
+The complete dimensional transformation is:
+
+**3 × 75 × 100 → 48 × 37 × 50 → 96 × 18 × 25 → 192 × 9 × 12 → 384 × 4 × 6 → 384 → 7 logits**
+
+Global Average Pooling transforms the final `384 × 4 × 6` tensor into a 384-dimensional representation.
+
+The final fully connected layer then maps:
+
+**384 features → 7 diagnostic logits**
+
+The architecture is implemented in:
+
+`src/model.py`
 
 ---
 
 ## Loss Function
 
-Because HAM10000 is strongly imbalanced, training uses a weighted cross-entropy loss.
+Because of the severe class imbalance, the network was trained using **weighted cross-entropy**.
 
-For class `c`, the weight is calculated independently inside each training fold as:
+For each class `c`, its weight is computed exclusively from the training portion of the corresponding fold:
 
-**w_c = N / (K × N_c)**
+**w_c = N_train / (K × N_c)**
 
 where:
 
-- `N` = number of training images;
-- `K` = number of diagnostic classes;
-- `N_c` = number of training images belonging to class `c`.
+- `N_train` is the total number of training images;
+- `K = 7` is the number of diagnostic classes;
+- `N_c` is the number of training images belonging to class `c`.
 
-This increases the contribution of minority classes during optimization.
+Computing the weights independently within each training fold ensures that validation and test distributions do not influence the optimization objective.
+
+Loss weighting and evaluation metrics address two different aspects of class imbalance:
+
+**weighted loss → modifies learning**
+
+**balanced metrics → modify performance reporting**
 
 ---
 
-## Training
+## Training Strategy
 
-The main training configuration is:
+The final training configuration was:
 
 | Parameter | Value |
 |---|---:|
 | Optimizer | Adam |
-| Learning rate | 0.0001 |
+| Learning rate | `1 × 10⁻⁴` |
 | Batch size | 32 |
 | Epochs | 50 |
 | Cross-validation folds | 5 |
+| Model-selection metric | Validation Balanced Accuracy |
 
-A new model is initialized for every fold.
+A completely new CNN was initialized for each fold.
 
-For each fold, the model achieving the highest **validation balanced accuracy** is selected.
+After every epoch, validation balanced accuracy was computed and the model state corresponding to the highest value was retained.
 
-The training pipeline is implemented in `src/training.py`.
+This produced five independently trained models:
+
+```text
+best_model_fold_1.pth
+best_model_fold_2.pth
+best_model_fold_3.pth
+best_model_fold_4.pth
+best_model_fold_5.pth
+```
+
+The training pipeline is implemented in:
+
+`src/training.py`
 
 ---
 
 ## Evaluation Metrics
 
-Because of the strong class imbalance, conventional accuracy alone is not sufficient to evaluate model performance.
+Because HAM10000 is strongly imbalanced, evaluation focuses primarily on metrics that give equal importance to diagnostic classes.
 
-Three main metrics were therefore considered:
+The three main reported metrics are:
 
-- **Accuracy**
-- **Balanced Accuracy**
-- **Macro F1 Score**
+### Accuracy
 
-Accuracy measures the overall proportion of correctly classified images.
+Overall proportion of correctly classified images.
 
-Balanced Accuracy corresponds to the mean recall across the seven diagnostic classes and therefore reduces the influence of the highly represented majority class.
+### Balanced Accuracy
 
-Macro F1 calculates the F1 score independently for each diagnostic class and then takes their arithmetic mean, giving equal importance to all seven classes regardless of their prevalence.
+Arithmetic mean of class-specific recalls:
 
-The evaluation pipeline is implemented in `src/evaluation.py`.
+**Balanced Accuracy = mean recall across the seven diagnostic classes**
+
+### Macro F1 Score
+
+The F1 score is computed independently for each class and then averaged with equal weight.
+
+Normalized confusion matrices were additionally used to investigate class-specific errors and systematic misclassification patterns.
+
+The evaluation pipeline is implemented in:
+
+`src/evaluation.py`
 
 ---
 
-## Results
+## Test Set Results
 
-The five models obtained from five-fold cross-validation were independently evaluated on the same held-out test set.
+The five retained models were independently evaluated on the same held-out test set containing **1,486 images**.
 
 | Model | Accuracy | Balanced Accuracy | Macro F1 |
 |---|---:|---:|---:|
 | 1 | 0.6521 | 0.6587 | 0.4635 |
 | 2 | 0.6709 | 0.6735 | 0.4884 |
-| 3 | **0.7234** | **0.6873** | **0.5664** |
+| **3** | **0.7234** | **0.6873** | **0.5664** |
 | 4 | 0.6931 | 0.6746 | 0.5137 |
 | 5 | 0.6945 | 0.6847 | 0.4893 |
 
-Mean performance across the five models:
+### Mean Performance
 
 | Metric | Mean ± SD |
 |---|---:|
@@ -199,62 +273,121 @@ Mean performance across the five models:
 | Balanced Accuracy | **0.6758 ± 0.0101** |
 | Macro F1 | **0.5043 ± 0.0349** |
 
-The average conventional accuracy was therefore approximately **68.7%**, while the average balanced accuracy was approximately **67.6%**.
-
-The mean Macro F1 score was approximately **50.4%**.
-
-Among the five independently trained models, **Model 3 achieved the best performance according to all three reported metrics**, reaching:
+Among the five trained models, **Model 3 achieved the strongest performance across all three reported metrics**:
 
 **Accuracy 0.7234 → Balanced Accuracy 0.6873 → Macro F1 0.5664**
 
-The relatively small variability in balanced accuracy across the five folds suggests that the ability of the network to recognize the different diagnostic classes remained reasonably stable across different training-validation partitions.
+---
 
-### Normalized Confusion Matrices
+## Normalized Confusion Matrices
 
-To better visualize class-specific performance, row-normalized confusion matrices were generated for all five models evaluated on the independent test set.
+Class-specific behavior was investigated using row-normalized confusion matrices.
 
-Each row represents the true diagnostic class, while each column represents the predicted class. Therefore, diagonal values correspond to class-specific recall.
+Each row corresponds to the true diagnostic class and each column to the predicted class.
+
+Because normalization is performed with respect to the true class:
+
+**each row sums to 1 → diagonal values represent class-specific recall**
+
+Off-diagonal values indicate systematic misclassification between diagnostic categories.
 
 <p align="center">
-  <img src="figures/confusion_matrices_5_models.png" width="1600">
+  <img src="figures/confusion_matrices_5_models.png" width="100%">
 </p>
 
-The confusion matrices confirm that model performance varies across diagnostic categories.
-
-In particular, melanocytic nevi (`nv`) and vascular lesions (`vasc`) tend to achieve higher recall values, whereas some minority or visually challenging classes show greater confusion.
+The matrices show that performance remains heterogeneous across diagnostic categories, particularly for some of the rarer classes.
 
 ---
 
-## ROC Analysis
+## Binary ROC Analyses
 
-Two clinically relevant binary classification analyses were additionally performed.
+In addition to multiclass classification, two binary discrimination tasks were evaluated using Receiver Operating Characteristic curves.
 
-### Melanocytic nevi vs all other lesions
+### Melanocytic Nevi vs All Other Lesions
 
-The seven output logits are transformed into probabilities using the softmax function.
+The seven output logits were converted into probabilities using softmax.
 
-The probability assigned to the `nv` class is then used as the binary prediction score:
+The probability assigned to the `nv` class was used as the binary score:
 
-**7 logits → Softmax probabilities → P(nv) → ROC curve**
+**7 logits → Softmax → P(nv) → ROC curve**
 
-The binary target is defined as:
+Across the five models, ROC Area Under the Curve values were approximately in the **0.92–0.94** range, indicating substantially stronger binary discrimination than exact seven-class classification.
 
-- `1` → melanocytic nevus;
-- `0` → any other lesion.
+### Malignant vs Non-Malignant Lesions
 
-### Malignant vs non-malignant lesions
-
-The malignant group is defined as:
+The malignant group was defined as:
 
 **mel + bcc + akiec**
 
-The corresponding malignancy probability is obtained by summing the probabilities assigned to these three diagnostic classes:
+The malignancy score was calculated as:
 
-**7 logits → Softmax probabilities → P(mel) + P(bcc) + P(akiec) → P(malignant)**
+**P(malignant | x) = P(mel) + P(bcc) + P(akiec)**
 
-This score is then used to calculate the Receiver Operating Characteristic curve and the corresponding Area Under the Curve.
+Therefore:
 
-The analysis is performed independently for each of the five models.
+**7 logits → Softmax → P(mel) + P(bcc) + P(akiec) → ROC curve**
+
+Across the five models, Area Under the Curve values were approximately in the **0.88–0.90** range.
+
+These results suggest that the learned visual representation contains clinically meaningful information even when exact seven-class discrimination remains more difficult.
+
+---
+
+## Development Experiments
+
+Several alternative architectures were explored during development before selecting the final CNN.
+
+These included:
+
+- convolutional networks with a larger number of channels and parameters;
+- Transformer-based extensions applied to the final convolutional representation;
+- alternative loss-weighting strategies;
+- architectural modifications intended to increase model capacity.
+
+Increasing model complexity did not improve final validation performance and frequently increased the gap between training and validation behavior.
+
+This is consistent with the limited amount of independent information available in HAM10000:
+
+**10,015 images → 7,470 unique lesions**
+
+Because multiple images may represent the same lesion, the effective number of independent observations is closer to the number of lesions than to the total number of images.
+
+The final architecture therefore favors a relatively compact representation:
+
+**384 × 4 × 6 → Global Average Pooling → 384 features → Linear classifier**
+
+rather than a substantially larger classification head.
+
+---
+
+## Main Limitations
+
+The principal limitations of the current project include:
+
+- severe diagnostic class imbalance;
+- very small numbers of examples for rare classes;
+- training from scratch rather than using a pretrained image model;
+- relatively low image resolution (`100 × 75`);
+- omission of available clinical variables such as age, sex, and anatomical localization;
+- absence of systematic nested cross-validation for hyperparameter optimization;
+- absence of external validation on an independent dataset.
+
+The model should therefore be considered an academic machine-learning prototype rather than a clinical diagnostic system.
+
+---
+
+## Future Work
+
+Possible extensions include:
+
+- transfer learning with pretrained convolutional architectures;
+- improved strategies for minority-class augmentation;
+- alternative approaches to class imbalance;
+- systematic hyperparameter optimization;
+- integration of age, sex, and anatomical localization;
+- model calibration;
+- explicit threshold selection based on sensitivity and specificity;
+- external validation on independent clinical datasets.
 
 ---
 
@@ -271,8 +404,8 @@ HAM10000-CNN-Classification/
 │   └── README.md
 │
 ├── figures/
-│   └── cnn_architecture.jpg
-|   └──confusion_matrices_5_models.png
+│   ├── cnn_architecture.jpg
+│   └── confusion_matrices_5_models.png
 │
 ├── models/
 │   └── README.md
@@ -280,93 +413,74 @@ HAM10000-CNN-Classification/
 ├── notebooks/
 │   └── skin_lesion_classification.ipynb
 │
-└── src/
-    ├── __init__.py
-    ├── dataset.py
-    ├── evaluation.py
-    ├── model.py
-    └── training.py
+├── src/
+│   ├── __init__.py
+│   ├── dataset.py
+│   ├── evaluation.py
+│   ├── model.py
+│   └── training.py
+│
+└── report/
+    └── Final_Project.pdf
 ```
-
-The final project report will also be included in the repository once completed.
 
 ---
 
-## Installation
+## Reproducibility
 
-Clone the repository:
+The project was implemented in Python using:
 
-```bash
-git clone https://github.com/lorenzovaresio/HAM10000-CNN-Classification.git
-```
+- PyTorch
+- torchvision
+- pandas
+- NumPy
+- scikit-learn
+- Matplotlib
 
-Move into the project directory:
+A random seed of `42` was used for the initial lesion-level split.
 
-```bash
-cd HAM10000-CNN-Classification
-```
+CUDA acceleration was used when available.
 
-Install the required Python packages:
+The complete experimental workflow is contained in:
+
+`notebooks/skin_lesion_classification.ipynb`
+
+Reusable components are available in the `src/` directory.
+
+To install the required packages:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
----
-
-## Usage
-
-The complete experimental workflow is available in:
-
-`notebooks/skin_lesion_classification.ipynb`
-
-The reusable Python components are contained in the `src` directory.
-
-The dataset should be placed locally at:
-
-`data/HAM10000_data.pkl`
-
-The dataset file is intentionally excluded from Git version control.
+The HAM10000 dataset itself is intentionally excluded from Git version control.
 
 ---
 
-## Limitations
+## Ethics and Data Privacy
 
-The main limitations of the current project include:
+This project uses the existing HAM10000 dataset and does not collect new patient data.
 
-- severe class imbalance;
-- limited representation of rare diagnostic categories;
-- relatively low image resolution;
-- training from scratch rather than transfer learning;
-- absence of patient metadata in the predictive model;
-- limited systematic hyperparameter optimization.
+HAM10000 is publicly available through Harvard Dataverse for non-commercial use with attribution.
+
+The machine-learning models developed here are intended exclusively for academic purposes and should not be interpreted as replacements for dermatological assessment or as standalone diagnostic medical devices.
 
 ---
 
-## Future Work
-
-Possible extensions include:
-
-- transfer learning with pretrained convolutional architectures;
-- alternative strategies for class imbalance;
-- improved class-dependent data augmentation;
-- systematic hyperparameter optimization;
-- incorporation of age, sex and anatomical localization;
-- model calibration;
-- further clinically relevant binary classification tasks.
-
----
-
-## Reference
+## References
 
 Tschandl, P., Rosendahl, C., & Kittler, H.  
 **The HAM10000 dataset: A large collection of multi-source dermatoscopic images of common pigmented skin lesions.**  
 *Scientific Data*, 5, 180161 (2018).
 
+Paszke, A. et al.  
+**PyTorch: An Imperative Style, High-Performance Deep Learning Library.**  
+*Advances in Neural Information Processing Systems*, 2019.
+
 ---
 
 ## Disclaimer
 
-This project was developed for academic purposes.
+This repository contains an **academic research project**.
 
-The resulting models are experimental machine learning systems and are **not intended for clinical diagnosis or medical decision-making**.
+The models and results presented here are experimental and are **not intended for clinical diagnosis, treatment decisions, or direct patient care**.
