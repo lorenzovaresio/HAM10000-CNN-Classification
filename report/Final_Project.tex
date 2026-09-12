@@ -1,0 +1,360 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,graphicx,booktabs,geometry,hyperref,float}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\geometry{margin=2.5cm}
+\setlist{nosep,leftmargin=*}
+\setlength{\parskip}{0.15em}
+\setlength{\parindent}{0pt}
+\titlespacing*{\section}{0pt}{1.25ex plus .2ex minus .1ex}{0.55ex}
+\titlespacing*{\subsection}{0pt}{1.0ex plus .2ex minus .1ex}{0.4ex}
+\title{\textbf{Classification of Skin Lesions Using a Convolutional Neural Network}}
+\author{Student Name: Lorenzo Varesio}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-0.7cm}
+\noindent
+\textbf{Course:} AI for Medicine \quad
+\textbf{Professor:} Prof. Stefano Diciotti \\
+\textbf{University:} University of Bologna \quad
+\textbf{Academic Year:} 2026/2027 \\
+\textbf{Degree Program:} Medicina e Chirurgia \quad
+\textbf{Submission Date:} \underline{\hspace{3cm}}
+\vspace{0.15cm}
+
+% ============================================================
+\section{Project Title}
+% ============================================================
+\textbf{Classification of Skin Lesions Using a Convolutional Neural Network}
+
+% ============================================================
+\section{Problem Statement}
+% ============================================================
+Skin lesions include benign conditions and malignant neoplasms for which delayed diagnosis may negatively affect patient outcomes. Their clinical assessment is commonly supported by dermoscopy and specialist interpretation. Automated image-based systems can therefore be useful as decision-support tools, particularly when they are evaluated with validation procedures that reflect the intended clinical task.
+
+% ============================================================
+\section{Objective of the Study}
+% ============================================================
+The objective of this project is to develop and evaluate a convolutional neural network (CNN) for automatic classification of dermoscopic images from the HAM10000 dataset. Given an RGB image $x\in\mathbb{R}^{3\times75\times100}$, the network produces seven diagnostic logits $z\in\mathbb{R}^{7}$:
+\[
+f_{\theta}:\mathbb{R}^{3\times75\times100}\rightarrow\mathbb{R}^{7},
+\qquad \hat y=\arg\max_k z_k,
+\]
+where $\theta$ denotes the trainable parameters. Performance was assessed on the seven-class task and on two clinically relevant binary distinctions: melanocytic nevi (\texttt{nv}) versus all other lesions, and malignant versus non-malignant lesions.
+
+% ============================================================
+\section{Dataset Description}
+% ============================================================
+The HAM10000 dataset contains $10015$ dermoscopic images and eight variables. Each image has dimensions $100\times75\times3$. The dataset contains $7470$ unique lesions, so multiple images may correspond to the same lesion and cannot be treated as fully independent observations.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Variables included in the HAM10000 dataset.}
+\begin{tabular}{lp{9.9cm}}
+\toprule
+\textbf{Variable} & \textbf{Description} \\
+\midrule
+\texttt{lesion\_id} & Identifier of the individual lesion. \\
+\texttt{image\_id} & Unique identifier of the dermoscopic image. \\
+\texttt{dx} & Diagnostic label assigned to the lesion. \\
+\texttt{dx\_type} & Method used to determine the diagnosis. \\
+\texttt{age} & Age of the patient. \\
+\texttt{sex} & Sex of the patient. \\
+\texttt{localization} & Anatomical localization of the lesion. \\
+\texttt{image} & Numerical representation of the dermoscopic image. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Seven diagnostic classes were used: \texttt{akiec} (actinic keratoses and intraepithelial carcinoma/Bowen's disease), \texttt{bcc} (basal cell carcinoma), \texttt{bkl} (benign keratosis-like lesions), \texttt{df} (dermatofibroma), \texttt{mel} (melanoma), \texttt{nv} (melanocytic nevi), and \texttt{vasc} (vascular lesions). The numerical mapping was
+\[
+\texttt{akiec}\!\to\!0,\quad \texttt{bcc}\!\to\!1,\quad \texttt{bkl}\!\to\!2,\quad
+\texttt{df}\!\to\!3,\quad \texttt{mel}\!\to\!4,\quad \texttt{nv}\!\to\!5,\quad \texttt{vasc}\!\to\!6.
+\]
+
+The dataset is strongly imbalanced, with \texttt{nv} representing most observations. The relative frequencies are reported in Table~\ref{tab:freq}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Relative frequency of diagnostic classes in HAM10000.}
+\label{tab:freq}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Class} & \textbf{Unique lesions (\%)} & \textbf{All images (\%)} \\
+\midrule
+\texttt{nv} & 72.33 & 66.95 \\
+\texttt{bkl} & 9.73 & 10.97 \\
+\texttt{mel} & 8.22 & 11.11 \\
+\texttt{bcc} & 4.38 & 5.13 \\
+\texttt{akiec} & 3.05 & 3.27 \\
+\texttt{vasc} & 1.31 & 1.42 \\
+\texttt{df} & 1.00 & 1.15 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This imbalance motivated the use of class-weighted training and class-balanced evaluation metrics rather than relying on accuracy alone.
+
+% ============================================================
+\section{Data Preprocessing}
+% ============================================================
+The images had already been validated, cropped, and centered by the original dataset authors; in some cases dermatologists also performed manual histogram adjustments. Diagnostic labels were converted to numerical indices. Image tensors were rearranged from $H\times W\times C$ to the PyTorch convention $C\times H\times W$, converted to floating point, and scaled from $[0,255]$ to $[0,1]$.
+
+Training augmentation included horizontal and vertical flips with probability $0.5$, random rotations in $[-20^\circ,+20^\circ]$, and tensor conversion. A stronger pipeline additionally introduced approximately $10\%$ random variation in brightness, contrast, and saturation, with the aim of increasing variability for minority classes and reducing overfitting.
+
+% ============================================================
+\section{Avoiding Data Leakage}
+% ============================================================
+A central methodological issue is the presence of repeated images from the same lesion. Splitting at image level could place different images of one lesion in both training and evaluation data, violating their independence and producing optimistic performance estimates. For this reason, all partitions were created at \texttt{lesion\_id} level.
+
+Unique lesions were randomly shuffled using \texttt{random\_state = 42}; $85\%$ of lesions were assigned to the cross-validation dataset and $15\%$ to an independent test set. This produced $8529$ images for cross-validation and $1486$ images for testing. The test set was kept separate from training, hyperparameter selection, and model selection.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Image-level class distribution in the cross-validation and independent test sets.}
+\label{tab:split}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Class} & \textbf{Cross-validation set (\%)} & \textbf{Test set (\%)} \\
+\midrule
+\texttt{nv} & 66.44 & 69.85 \\
+\texttt{mel} & 11.22 & 10.50 \\
+\texttt{bkl} & 11.19 & 9.76 \\
+\texttt{bcc} & 5.15 & 5.05 \\
+\texttt{akiec} & 3.29 & 3.10 \\
+\texttt{vasc} & 1.56 & 0.61 \\
+\texttt{df} & 1.15 & 1.14 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Within the cross-validation data, five-fold \texttt{GroupKFold} was applied using \texttt{lesion\_id} as the grouping variable. Therefore, all images of the same lesion belonged entirely to either training or validation in each fold. This directly addresses the data-leakage problem emphasized in medical imaging, where correlated observations from the same subject or lesion must not be distributed across training and evaluation partitions.
+
+
+\subsection{Validation Strategy and Generalization}
+The validation design follows the separation between model development and final evaluation. The cross-validation portion of the data is used to fit model parameters and to select, within each fold, the epoch with the best validation balanced accuracy. The held-out test set is not used to choose architecture parameters, class weights, epochs, or checkpoints. It is used only after training to estimate performance on lesions not used during model development.
+
+This distinction is important because the validation data are part of the model-selection process: once a performance measure is used to choose an epoch or a model configuration, that subset no longer provides an independent estimate of final generalization error. The independent test set therefore plays a different role from the validation folds. In the terminology used in the course, the inner development process makes choices, whereas the external test data are reserved for evaluation of those choices.
+
+The use of five folds also makes more efficient use of the available development data than a single validation split. Each lesion in the cross-validation dataset contributes to training in four folds and to validation in one fold. However, because the same independent test set is used to compare the five trained fold models, the five test results should be interpreted as performance of five related training runs rather than as five independent estimates based on different test populations.
+
+The grouping constraint is especially important for the i.i.d. assumptions underlying supervised learning evaluation. Images from the same lesion are correlated observations; treating them as independent and placing them in different partitions would make the training and evaluation sets partially dependent. Grouping by \texttt{lesion\_id} preserves independence at the lesion level and makes the test task closer to the intended use case: prediction on previously unseen lesions.
+
+% ============================================================
+\section{Machine Learning Pipeline}
+% ============================================================
+\subsection{CNN Architecture}
+The network consists of four convolutional blocks followed by global average pooling and a fully connected classification layer (Figure~\ref{fig:cnn_architecture}). Each block contains two $3\times3$ convolutions with padding $1$, each followed by batch normalization and ReLU, and ends with $2\times2$ max pooling.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{CNN_architecture.jpg}
+\caption{CNN architecture used for dermoscopic image classification.}
+\label{fig:cnn_architecture}
+\end{figure}
+
+Across blocks, feature channels increase as
+\[
+3\rightarrow48\rightarrow96\rightarrow192\rightarrow384,
+\]
+while max pooling reduces spatial resolution:
+\[
+75\times100\rightarrow37\times50\rightarrow18\times25\rightarrow9\times12\rightarrow4\times6.
+\]
+The complete transformation is therefore
+\[
+\mathbb{R}^{3\times75\times100}\rightarrow
+\mathbb{R}^{48\times37\times50}\rightarrow
+\mathbb{R}^{96\times18\times25}\rightarrow
+\mathbb{R}^{192\times9\times12}\rightarrow
+\mathbb{R}^{384\times4\times6}\rightarrow
+\mathbb{R}^{384}\rightarrow\mathbb{R}^{7}.
+\]
+
+A convolution computes local feature maps, schematically
+\[
+Z_k=\sum_c W_{k,c}*X_c+b_k.
+\]
+Each $3\times3$ filter spans the full channel depth of its input and is applied with stride $1$. Padding equal to $1$ preserves height and width after convolution, so the reduction in spatial dimensions is produced by pooling rather than by the convolutions themselves. The first convolution of each block increases the number of channels, while the second preserves it. In this way, the network progressively trades spatial resolution for a richer set of learned feature maps.
+
+\paragraph{Batch normalization and ReLU.}
+After each convolution, batch normalization is applied independently to every output channel. For an activation $Z$ in a mini-batch,
+\[
+\hat Z=\frac{Z-\mu_B}{\sqrt{\sigma_B^2+\varepsilon}},
+\qquad Y=\gamma\hat Z+\beta,
+\]
+where $\mu_B$ and $\sigma_B^2$ are the mini-batch mean and variance, $\varepsilon$ ensures numerical stability, and $\gamma$ and $\beta$ are learned scale and shift parameters. This stabilizes the distribution of intermediate activations during optimization. ReLU is then applied element-wise,
+\[
+\mathrm{ReLU}(x)=\max(0,x),
+\]
+introducing the non-linearity required for successive convolutional layers to represent increasingly complex image patterns.
+
+\paragraph{Max pooling.}
+After every pair of convolution--batch normalization--ReLU operations, a $2\times2$ max-pooling layer with stride $2$ retains the strongest activation in each local region. It has no learnable parameters and approximately halves height and width while leaving the number of channels unchanged:
+\[
+C\times H\times W\rightarrow C\times\left\lfloor\frac{H}{2}\right\rfloor\times\left\lfloor\frac{W}{2}\right\rfloor.
+\]
+Pooling therefore reduces computation and exact spatial detail while preserving strong local evidence for learned features.
+
+\paragraph{Global average pooling and classification.}
+After the fourth block, global average pooling averages each final $4\times6$ feature map,
+\[
+g_k=\frac{1}{HW}\sum_{i=1}^{H}\sum_{j=1}^{W}F_k(i,j),\qquad H=4,\;W=6,
+\]
+producing a $384$-dimensional vector. Compared with flattening all spatial activations, this substantially reduces the number of parameters in the classification head. The final fully connected layer maps the $384$ pooled features to seven logits. These logits are unnormalized class scores; the predicted class is the one with the largest logit, while softmax probabilities are used when a probabilistic score is required for ROC analysis.
+
+\subsection{Loss, Optimization, and Model Selection}
+To reduce the influence of the majority class, weighted cross-entropy was used. Importantly, class weights were computed separately from the training portion of each fold only:
+\[
+w_c=\frac{N_{\mathrm{train}}}{K N_c},\qquad K=7.
+\]
+With softmax probabilities $p_k=e^{z_k}/\sum_{j=1}^{7}e^{z_j}$, the contribution of a sample with true class $y$ is
+\[
+\mathcal{L}=-w_y\log(p_y).
+\]
+
+
+\paragraph{Why weighted cross-entropy was used.}
+With ordinary cross-entropy, every image contributes equally to the empirical loss. In a dataset where one class accounts for most images, the optimization objective is therefore dominated by that class. The inverse-frequency weighting used here changes the contribution of each observation according to the prevalence of its class, increasing the penalty associated with errors on rare diagnoses. Computing these weights from the training portion of each fold only is essential: using validation or test frequencies to construct the training loss would allow information from evaluation data to influence model fitting.
+
+The loss weighting and the evaluation metrics address different aspects of imbalance. Weighting modifies the training objective, whereas balanced accuracy and macro F1 modify how performance is summarized. Using both does not guarantee equal performance across classes, but it prevents the most common diagnosis from dominating either learning or reporting.
+
+The network was trained with Adam (learning rate $10^{-4}$) for $50$ epochs using mini-batches of $32$ images. For every fold, a new model was initialized and trained independently. After each epoch, validation balanced accuracy was computed, and the state with the highest value was retained. This produced five models, \texttt{best\_model\_fold\_1.pth} through \texttt{best\_model\_fold\_5.pth}.
+
+Five-fold cross-validation was implemented with
+\begin{verbatim}
+gkf = GroupKFold(n_splits=5)
+gkf.split(crossval_df, groups=crossval_df['lesion_id'])
+\end{verbatim}
+so each lesion entered validation exactly once and never appeared in both training and validation within the same fold. The independent test set remained untouched until final evaluation. This separation is important because model-selection decisions must be made using training/validation data, not the test set, to avoid optimistic bias in the final estimate of generalization performance.
+
+\subsection{Evaluation Metrics}
+Because of class imbalance, evaluation emphasized balanced accuracy, macro F1 score, and normalized confusion matrices, with standard accuracy reported as a complementary measure. Accuracy can be dominated by the majority class and is therefore insufficient on its own in this dataset. Balanced accuracy is the mean class recall,
+\[
+\mathrm{Balanced\ Accuracy}=\frac{1}{7}\sum_{k=1}^{7}\mathrm{Recall}_k.
+\]
+Macro F1 was computed by calculating the F1 score separately for each diagnostic class and then averaging the seven values with equal weight. Consequently, both balanced accuracy and macro F1 prevent the dominant class from determining the entire evaluation. Normalized confusion matrices were additionally used to identify which diagnoses were systematically confused.
+
+% ============================================================
+\section{Results}
+% ============================================================
+The five selected models were evaluated on the same held-out test set of $1486$ images.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Performance of the five models on the held-out test set.}
+\label{tab:testperf}
+\begin{tabular}{cccc}
+\toprule
+\textbf{Model} & \textbf{Accuracy} & \textbf{Balanced Accuracy} & \textbf{Macro F1} \\
+\midrule
+1 & 0.6521 & 0.6587 & 0.4635 \\
+2 & 0.6709 & 0.6735 & 0.4884 \\
+3 & \textbf{0.7234} & \textbf{0.6873} & \textbf{0.5664} \\
+4 & 0.6931 & 0.6746 & 0.5137 \\
+5 & 0.6945 & 0.6847 & 0.4893 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Normalized confusion matrices were used to examine class-specific behavior. For true class $i$ and predicted class $j$,
+\[
+C_{ij}=\frac{N_{ij}}{\sum_j N_{ij}},
+\]
+so each row sums to one and diagonal values correspond to class recall.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\textwidth]{confusion_matrices_3plus2.png}
+\caption{Normalized confusion matrices for the five models on the held-out test set.}
+\label{fig:conf}
+\end{figure}
+
+\subsection{Binary ROC Analyses}
+Receiver operating characteristic (ROC) analysis evaluates discrimination over all possible decision thresholds. For each threshold, sensitivity is plotted against the false-positive rate, and the area under the curve (AUC) summarizes the ranking ability of the score independently of a single operating point.
+
+For \texttt{nv} versus all other classes, the softmax probability $p_{\mathrm{nv}}$ was used as the binary score. The ROC curve was obtained by varying its threshold and computing the corresponding true-positive and false-positive rates.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.68\textwidth]{roc_nv.png}
+\caption{ROC curves for melanocytic nevi (\texttt{nv}) versus all other classes.}
+\label{fig:rocnv}
+\end{figure}
+
+For malignant versus non-malignant lesions, the malignant group was defined as
+\[
+\mathcal{M}=\{\texttt{mel},\texttt{bcc},\texttt{akiec}\},
+\]
+and the score was
+\[
+P(\mathrm{malignant}\mid x)=p_{\mathrm{mel}}+p_{\mathrm{bcc}}+p_{\mathrm{akiec}}.
+\]
+The target was one when $y\in\mathcal{M}$ and zero otherwise; varying the decision threshold generated the ROC curves in Figure~\ref{fig:rocmal}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.68\textwidth]{roc_mal.png}
+\caption{ROC curves for malignant versus non-malignant lesions.}
+\label{fig:rocmal}
+\end{figure}
+
+
+\subsection{Development Experiments and Model Capacity}
+During development, alternative configurations were explored before retaining the final architecture. Larger convolutional variants increased the number of channels and parameters, and Transformer-based extensions were tested on the final convolutional representation. These experiments were intended to determine whether a higher-capacity model could exploit interactions among the spatial features extracted by the CNN.
+
+The additional complexity did not improve the final performance and, in several experiments, produced a larger gap between training and validation behavior. This observation is consistent with the central generalization trade-off discussed in the course: increasing capacity can reduce training error while simultaneously increasing the risk of fitting dataset-specific noise. HAM10000 contains $10015$ images but only $7470$ unique lesions, and the effective number of independent observations is therefore closer to the number of lesions than to the number of images. In this context, a more complex hypothesis space is not automatically advantageous.
+
+The retained model consequently uses a comparatively simple classification head. Global average pooling compresses the final $384\times4\times6$ tensor to $384$ features before the linear classifier, avoiding a large fully connected layer over all spatial activations. Model selection is then based on validation balanced accuracy rather than training loss. These choices aim to favor a model that generalizes across lesions rather than one that only achieves a better fit to the training images.
+
+No systematic nested cross-validation hyperparameter search was performed. Architecture and training choices were developed using the cross-validation framework, while the final test set was kept isolated from those choices. A more exhaustive future study could formalize architecture, learning-rate, augmentation, and regularization selection inside an inner validation loop, leaving an outer evaluation loop or a single untouched external test set for an unbiased comparison of candidate pipelines.
+
+% ============================================================
+\section{Discussion}
+% ============================================================
+Seven-class performance was moderate and heterogeneous across diagnoses. The best model achieved accuracy $0.7234$, balanced accuracy $0.6873$, and macro F1 $0.5664$. Accuracy alone is potentially misleading because \texttt{nv} represents roughly $70\%$ of the dataset; balanced accuracy and macro F1 are therefore more informative about performance across minority as well as majority classes. The normalized confusion matrices confirm weaker and more variable recall for some rare diagnoses.
+
+The binary tasks were stronger. For \texttt{nv} versus all other lesions, ROC AUC values ranged from $0.917$ to $0.934$, while malignant versus non-malignant classification achieved AUC values between $0.883$ and $0.899$. This suggests that the learned representation contains clinically meaningful information even when exact seven-class discrimination remains difficult. As emphasized by ROC analysis, these results describe discrimination across thresholds; any clinical use would still require selection of an operating threshold and explicit assessment of sensitivity and specificity.
+
+A principal methodological strength is the lesion-level splitting strategy. Keeping correlated images from the same lesion within one partition protects the independence of training and evaluation data and reduces data leakage. The independent test set further separates model selection from final evaluation, providing a more credible estimate of generalization to unseen lesions.
+
+Main limitations are the severe class imbalance, small numbers of rare diagnoses, training from scratch rather than using a pretrained network, the relatively low image resolution ($100\times75$ pixels), and omission of clinical variables such as age, sex, and anatomical localization.
+
+
+The difference between training from scratch and transfer learning is also relevant to model capacity and generalization. A network with millions of parameters can fit complex visual patterns, but the effective amount of independent information is constrained by the number of unique lesions rather than by the number of images alone. The observed overfitting of larger CNNs and Transformer-based variants is therefore consistent with the general principle that increasing capacity does not necessarily improve performance when the available data are limited. In this setting, regularization through augmentation, class weighting, early model selection based on validation balanced accuracy, and the relatively compact global-average-pooling head was preferred over further increasing model complexity.
+ The final CNN contains approximately $2.64$ million trainable parameters. Larger convolutional architectures and Transformer-based extensions were explored during development but did not improve performance and in several experiments increased overfitting, suggesting limited benefit from further capacity expansion on this dataset.
+
+% ============================================================
+\section{Conclusions and Future Work}
+% ============================================================
+Across the five trained models, mean test performance was $\mathrm{Accuracy}=0.6868\pm0.0241$, $\mathrm{Balanced\ Accuracy}=0.6758\pm0.0101$, and $F1_{\mathrm{macro}}=0.5043\pm0.0349$. The stronger AUC values on the two binary tasks indicate that the network learned informative visual representations, but the system should be considered an academic prototype rather than a standalone diagnostic tool.
+
+Future work could investigate transfer learning, improved strategies for imbalance and augmentation, systematic hyperparameter optimization, integration of clinical variables, and threshold-based evaluation including sensitivity, specificity, and calibration. External validation would be required before considering clinical use.
+
+% ============================================================
+\section{Ethics and Data Privacy}
+% ============================================================
+The project uses the existing HAM10000 dataset and does not collect new patient data. HAM10000 is publicly available through Harvard Dataverse (DOI: 10.7910/DVN/DBW86T) for non-commercial use with attribution. % ============================================================
+\section{Code and Reproducibility}
+% ============================================================
+The implementation was developed in Python/Google Colab using PyTorch, torchvision, pandas, NumPy, scikit-learn, and Matplotlib. A seed of $42$ was used for lesion-level splitting and CUDA computation was used when available. The full analysis pipeline is contained in \texttt{Final\_Project\_Classification\_of\_skin\_lesions\_withCNN.ipynb}, and the five retained model states correspond to the epoch with the highest validation balanced accuracy in each fold. Reporting the data split, preprocessing, hyperparameters, software environment, random seed, and saved model-selection criterion supports reproducibility of the computational workflow.
+
+% ============================================================
+\section{References}
+% ============================================================
+\begin{thebibliography}{9}
+\bibitem{ham10000}
+Tschandl, P., Rosendahl, C., \& Kittler, H. \textit{The HAM10000 dataset: A large collection of multi-source dermatoscopic images of common pigmented skin lesions}. Scientific Data, 5, 180161, 2018.
+
+\bibitem{pytorch}
+Paszke, A. et al. \textit{PyTorch: An Imperative Style, High-Performance Deep Learning Library}. Advances in Neural Information Processing Systems, 2019.
+\end{thebibliography}
+\end{document}
